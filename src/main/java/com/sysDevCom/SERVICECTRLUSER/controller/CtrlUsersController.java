@@ -1,0 +1,127 @@
+package com.sysDevCom.SERVICECTRLUSER.controller;
+
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.sysDevCom.SERVICECTRLUSER.Security.JwtUtil;
+import com.sysDevCom.SERVICECTRLUSER.Model.CtrlUsers;
+import com.sysDevCom.SERVICECTRLUSER.Repository.CtrlUsersRepository;
+import com.sysDevCom.SERVICECTRLUSER.Service.CtrlUsersService;
+
+@RestController
+@RequestMapping("/users")
+public class CtrlUsersController {
+
+    private final CtrlUsersService ctrlUsersService;
+    private final CtrlUsersRepository repository;
+
+    @Autowired
+    private JwtUtil jwtUtil; // 🔑 Inyectamos JwtUtil
+
+    @Autowired
+    public CtrlUsersController(CtrlUsersService ctrlUsersService, CtrlUsersRepository repository) {
+        this.ctrlUsersService = ctrlUsersService;
+        this.repository = repository;
+    }
+
+    // Insertar usuario
+    @PostMapping("/insertar")
+    public CtrlUsers createUser(@RequestBody CtrlUsers usuario) {
+
+        String hashedPassword = md5(usuario.getclvPass());
+        usuario.setclvPass(hashedPassword);
+        return ctrlUsersService.crearUsuario(usuario);
+    }
+
+    // Actualizar usuario
+    @PutMapping("/actualizar")
+    public CtrlUsers updateUser(@RequestBody CtrlUsers usuario) {
+        String hashedPassword = md5(usuario.getclvPass());
+        usuario.setclvPass(hashedPassword);
+        return ctrlUsersService.actualizarUsuario(usuario);
+    }
+
+    // Eliminar usuario
+    @DeleteMapping("/eliminar/{id}")
+    public String deleteUser(@PathVariable String id) {
+        ctrlUsersService.eliminarUsuario(id);
+        return "Usuario con id " + id + " eliminado correctamente";
+    }
+    
+    @GetMapping("/me")
+    public CtrlUsers getCurrentUser(@RequestHeader("Authorization") String authHeader) {
+    String token = authHeader.replace("Bearer ", "");
+    String username = jwtUtil.extractUsername(token);
+    return repository.findByUserName(username).orElse(null);
+    }
+  
+    // LOGIN con JWT
+    @PostMapping("/login")
+    public Map<String, Object> login(@RequestBody Map<String, String> loginData) {
+
+        String userName = loginData.get("username");
+        String clvPass = loginData.get("password");
+
+        // Convertir la contraseña ingresada a hash MD5
+        String hashedPassword = md5(clvPass);
+
+        // Buscar por username y password en la base de datos
+        Optional<CtrlUsers> userOpt = repository.findByUserNameAndClvPass(userName, hashedPassword);
+
+        Map<String, Object> response = new HashMap<>();
+        if (userOpt.isPresent()) {
+            CtrlUsers user = userOpt.get();
+
+            // 🔑 Generar token JWT
+            String token = jwtUtil.generateToken(user.getUserName());
+
+            response.put("status", "success");
+            response.put("message", "Usuario encontrado");
+            response.put("user", user);
+            response.put("token", token); 
+        } else {
+            response.put("status", "error");
+            response.put("message", "Usuario no encontrado");
+        }
+
+        return response;
+    }
+
+    // Obtener todos los usuarios
+    @GetMapping("listar")
+    public List<CtrlUsers> listarUsuarios() {
+        return ctrlUsersService.listarUsuarios();
+    }
+    //Metodo que aplica hash md5 a la contraseña para encriptar y evitar que se vea en texto plano
+    private String md5(String input) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            byte[] messageDigest = md.digest(input.getBytes());
+
+            // Convertimos a formato hexadecimal
+            StringBuilder sb = new StringBuilder();
+            for (byte b : messageDigest) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
+    }
+}
